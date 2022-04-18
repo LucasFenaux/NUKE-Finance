@@ -18,9 +18,10 @@ if not os.path.exists(save_dir):
 
 
 def download_data_worker(tickers: list, period, interval, q):
-    print(tickers)
+
     available_tickers = []
     multi_tickers = ""
+
     for ticker in tickers:
         available_tickers.append(ticker)
         multi_tickers += ticker + " "
@@ -28,18 +29,22 @@ def download_data_worker(tickers: list, period, interval, q):
     try:
         if type(period) == str:
             data = yf.download(multi_tickers, period=period, interval=interval, group_by='ticker')
+
         elif type(period) == tuple:
             assert len(period) == 2
             data = yf.download(multi_tickers, start=period[0], end=period[1], interval=interval, group_by='ticker')
+
         else:
             print(f"Period variable is neither a string nor a tuple but a type {type(period)}")
             raise TypeError
+
         errors = list(shared._ERRORS.keys())
         available_tickers = list(set(available_tickers) - set(errors))
         print("Errors " + str(errors))
         print(f"Available tickers: {available_tickers}")
         q.put((data, available_tickers))
         return
+
     except:
         print(f"Something went wrong when fetching all the data")
         # so the process doesn't get stuck in an infinite loop
@@ -53,18 +58,24 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
     ticker_name_list = []
     for exchange in exchanges:
         if exchange in ("nyse", "nasdaq", "amex"):
+
             file_name = f"data/tickers/nasdaq_screener_{exchange}.csv"
+
             with open(file_name) as ticker_csv:
                 ticker_reader = csv.reader(ticker_csv)
                 next(ticker_reader, None)  # skip the headers
+
                 for row in ticker_reader:
                     if row[0] not in ticker_name_list:  # we only take one listing a given ticker
                         ticker_name_list.append(row[0].strip())
+
         elif exchange == "tsx":
             file_name = f"data/tickers/tsx_tickers.csv"
+
             with open(file_name) as ticker_csv:
                 ticker_reader = csv.reader(ticker_csv)
-                # next(ticker_reader, None)  # skip the headers
+                next(ticker_reader, None)  # skip the headers
+
                 for row in ticker_reader:
                     if row[0] not in ticker_name_list:  # we only take one listing a given ticker
                         ticker_name_list.append(row[3].strip() + ".TO")
@@ -77,10 +88,12 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
     p = int(len(ticker_name_list)/num_workers)
     c = 0
     jobs = []
+
     for i in range(num_workers - 1):
         job = pool.apply_async(download_data_worker, (ticker_name_list[c:c+p], period, interval, q))
         jobs.append(job)
         c += p
+
     job = pool.apply_async(download_data_worker, (ticker_name_list[c:], period, interval, q))
     jobs.append(job)
 
@@ -94,6 +107,7 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
         else:
             d, t = q.get()
             tickers += t
+
     pool.close()
     pool.join()
 
@@ -106,10 +120,12 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
     p = int(len(tickers)/num_workers)
     c = 0
     jobs = []
+
     for i in range(num_workers - 1):
         job = pool.apply_async(download_data_worker, (tickers[c:c+p], period, interval, q))
         jobs.append(job)
         c += p
+
     job = pool.apply_async(download_data_worker, (tickers[c:], period, interval, q))
     jobs.append(job)
 
@@ -117,8 +133,11 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
         job.get()
 
     data = None
+
     for i in range(num_workers):
+
         d, _ = q.get()
+
         if data is None:
             data = d
         else:
@@ -184,6 +203,7 @@ def load_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "
 
         except AssertionError:
 
+            print("Dropping ticker:")
             print(l, ticker, data[ticker].shape)
             data.drop(ticker, axis=1, inplace=True)
 
@@ -195,7 +215,6 @@ def load_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "
     data = data.fillna(-1.).values.reshape((s[0], len(tickers), number_of_features))
     data = data.transpose(1, 0, 2)
 
-    print(data)
     return data, tickers
 
 
