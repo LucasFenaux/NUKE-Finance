@@ -6,8 +6,8 @@ import yfinance as yf
 import multiprocessing as mp
 import os
 import pickle
-import time
 import yfinance.shared as shared
+import xarray
 
 save_dir = "data/values/"
 if not os.path.exists(save_dir):
@@ -21,26 +21,9 @@ def download_data_worker(tickers: list, period, interval, q):
     for ticker in tickers:
         available_tickers.append(ticker)
         multi_tickers += ticker + " "
-    # i = 0
-    # for ticker_name in tickers:
-    #     try:
-    #         data = yf.download(ticker_name, period=period, interval=interval)
-    #         # if ticker_data is None:
-    #         #     ticker_data = data
-    #         # else:
-    #         #     ticker_data = pd.concat([ticker_data, data])
-    #         available_tickers.append(ticker_name)
-    #         multi_tickers += ticker_name + " "
-    #         i += 1
-    #         print(str(i) + "/" + str(len(tickers)))
-    #     except:
-    #         print(f"Something went wrong when fetching {ticker_name}")
-    #         i += 1
-    #         print(str(i) + "/" + str(len(tickers)))
 
     try:
         data = yf.download(multi_tickers, period=period, interval=interval, group_by='ticker')
-        import yfinance.shared as shared
         errors = list(shared._ERRORS.keys())
         available_tickers = list(set(available_tickers) - set(errors))
         print("Errors " + str(errors))
@@ -54,19 +37,27 @@ def download_data_worker(tickers: list, period, interval, q):
         return
 
 
-def download_data(exchanges: tuple = ("nyse", "nasdaq", "amex"), period: str = "1d", interval: str = "1h",
-                  num_workers: int = 20):
+def download_data(exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), period: str = "1d", interval: str = "1h",
+                  num_workers: int = 16):
     """ Reads all the existing tickers on a stock exchange from a pre-downloaded list stored in data/tickers"""
     ticker_name_list = []
     for exchange in exchanges:
-        file_name = f"data/tickers/nasdaq_screener_{exchange}.csv"
-        with open(file_name) as ticker_csv:
-            ticker_reader = csv.reader(ticker_csv)
-            next(ticker_reader, None)  # skip the headers
-            for row in ticker_reader:
-                if row[0] not in ticker_name_list:  # we only take one listing a given ticker
-                    ticker_name_list.append(row[0].strip())
-
+        if exchange in ("nyse", "nasdaq", "amex"):
+            file_name = f"data/tickers/nasdaq_screener_{exchange}.csv"
+            with open(file_name) as ticker_csv:
+                ticker_reader = csv.reader(ticker_csv)
+                next(ticker_reader, None)  # skip the headers
+                for row in ticker_reader:
+                    if row[0] not in ticker_name_list:  # we only take one listing a given ticker
+                        ticker_name_list.append(row[0].strip())
+        elif exchange == "tsx":
+            file_name = f"data/tickers/tsx_tickers.csv"
+            with open(file_name) as ticker_csv:
+                ticker_reader = csv.reader(ticker_csv)
+                # next(ticker_reader, None)  # skip the headers
+                for row in ticker_reader:
+                    if row[0] not in ticker_name_list:  # we only take one listing a given ticker
+                        ticker_name_list.append(row[3].strip() + ".TO")
     # we first get them to see which tickers don't work anymore
 
     manager = mp.Manager()
@@ -129,25 +120,45 @@ def download_data(exchanges: tuple = ("nyse", "nasdaq", "amex"), period: str = "
     # we save to pickle instead of csv to save the indexing structure properly
     # data.to_pickle(save_dir + f"{exchanges}_{period}_{interval}.pkl")
     with open(save_dir + f"{exchanges}_{period}_{interval}.pkl", "wb") as f:
-        pickle.dump((data, tickers), f)
+        pickle.dump(data, f)
 
-    return data, tickers
+    return data
 
 
-def load_data(exchanges: tuple = ("nyse", "nasdaq", "amex"), period: str = "1d", interval: str = "1h",
-              num_workers: int = 20):
+def load_data(exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), period: str = "1d", interval: str = "1h",
+              num_workers: int = 16):
     """ Loads saved stock market data, if it isn't saved, it downloads it"""
     try:
         # data = pd.read_pickle(save_dir + f"{exchanges}_{period}_{interval}.pkl")
         with open(save_dir + f"{exchanges}_{period}_{interval}.pkl", "rb") as f:
-            data, tickers = pickle.load(f)
+            data = pickle.load(f)
     except FileNotFoundError:
         print(f"Data for exchanges {exchanges} with period {period} and interval {interval} was not found")
         print(f"It will now be downloaded using {num_workers} workers")
-        data, tickers = download_data(exchanges=exchanges, period=period, interval=interval, num_workers=num_workers)
+        data = download_data(exchanges=exchanges, period=period, interval=interval, num_workers=num_workers)
 
+    number_of_features = 6
+    s = data.shape
+    tickers = data.keys().get_level_values(0).unique().values
+    for l, ticker in enumerate(tickers):
+        # sometimes some rows have duplicate indices, I do not know how to fix it without it taking forever and it's
+        # only been like 5 tickers out of 7500 so we just drop them
+        try:
+            assert data[ticker].shape == (s[0], number_of_features)
+        except AssertionError:
+            print(l, ticker, data[ticker].shape)
+            data.drop(ticker, axis=1, inplace=True)
+
+    tickers = data.keys().get_level_values(0).unique().values
+    print(f"There are {len(tickers)} tickers in the available training data")
+    # reshape it into a numpy array of the form (ticker, timestamp, column attribute)
+    # where the column attributes are the features
+    data = data.fillna(-1.).values.reshape((s[0], len(tickers), number_of_features))
+    data = data.transpose(1, 0, 2)
+
+    print(data)
     return data, tickers
 
 
 if __name__ == '__main__':
-    load_data(interval="90m", num_workers=20)
+    load_data(period="1w", interval="1h", num_workers=16)
