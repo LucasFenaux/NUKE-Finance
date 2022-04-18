@@ -8,10 +8,13 @@ import os
 import pickle
 import yfinance.shared as shared
 import xarray
+from typing import Union
 
 save_dir = "data/values/"
 if not os.path.exists(save_dir):
     os.mkdir(save_dir)
+
+# when downloading a yfinance ticker using a start-end, one can make the end time a day later to capture the current day
 
 
 def download_data_worker(tickers: list, period, interval, q):
@@ -23,7 +26,14 @@ def download_data_worker(tickers: list, period, interval, q):
         multi_tickers += ticker + " "
 
     try:
-        data = yf.download(multi_tickers, period=period, interval=interval, group_by='ticker')
+        if type(period) == str:
+            data = yf.download(multi_tickers, period=period, interval=interval, group_by='ticker')
+        elif type(period) == tuple:
+            assert len(period) == 2
+            data = yf.download(multi_tickers, start=period[0], end=period[1], interval=interval, group_by='ticker')
+        else:
+            print(f"Period variable is neither a string nor a tuple but a type {type(period)}")
+            raise TypeError
         errors = list(shared._ERRORS.keys())
         available_tickers = list(set(available_tickers) - set(errors))
         print("Errors " + str(errors))
@@ -37,7 +47,7 @@ def download_data_worker(tickers: list, period, interval, q):
         return
 
 
-def download_data(exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), period: str = "1d", interval: str = "1h",
+def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), interval: str = "1h",
                   num_workers: int = 16):
     """ Reads all the existing tickers on a stock exchange from a pre-downloaded list stored in data/tickers"""
     ticker_name_list = []
@@ -125,32 +135,61 @@ def download_data(exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), period: 
     return data
 
 
-def load_data(exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), period: str = "1d", interval: str = "1h",
+def load_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), interval: str = "1h",
               num_workers: int = 16):
-    """ Loads saved stock market data, if it isn't saved, it downloads it"""
+    """ Loads saved stock market data, if it isn't saved, it downloads it
+        Period can either be a string (representing the last amount of hours/days/weeks/months/years etc...
+        or it can be a tuple of the form (starting_date, end_date) where if end_date is None then it defaults to
+        (starting_date, now)
+    """
     try:
         # data = pd.read_pickle(save_dir + f"{exchanges}_{period}_{interval}.pkl")
-        with open(save_dir + f"{exchanges}_{period}_{interval}.pkl", "rb") as f:
-            data = pickle.load(f)
+        if type(period) == tuple:
+
+            if len(period) == 1:
+                period = (period[0], None)
+
+            if period[1] is None:
+                # we only have a starting date and the current date is now so we re-download the data
+                data = download_data(period=period, exchanges=exchanges, interval=interval, num_workers=num_workers)
+
+            else:
+
+                with open(save_dir + f"{exchanges}_{period}_{interval}.pkl", "rb") as f:
+                    data = pickle.load(f)
+
+        else:
+
+            with open(save_dir + f"{exchanges}_{period}_{interval}.pkl", "rb") as f:
+                data = pickle.load(f)
+
     except FileNotFoundError:
+
         print(f"Data for exchanges {exchanges} with period {period} and interval {interval} was not found")
         print(f"It will now be downloaded using {num_workers} workers")
-        data = download_data(exchanges=exchanges, period=period, interval=interval, num_workers=num_workers)
+        data = download_data(period=period, exchanges=exchanges, interval=interval, num_workers=num_workers)
 
     number_of_features = 6
     s = data.shape
     tickers = data.keys().get_level_values(0).unique().values
+
     for l, ticker in enumerate(tickers):
+
         # sometimes some rows have duplicate indices, I do not know how to fix it without it taking forever and it's
         # only been like 5 tickers out of 7500 so we just drop them
+
         try:
+
             assert data[ticker].shape == (s[0], number_of_features)
+
         except AssertionError:
+
             print(l, ticker, data[ticker].shape)
             data.drop(ticker, axis=1, inplace=True)
 
     tickers = data.keys().get_level_values(0).unique().values
     print(f"There are {len(tickers)} tickers in the available training data")
+
     # reshape it into a numpy array of the form (ticker, timestamp, column attribute)
     # where the column attributes are the features
     data = data.fillna(-1.).values.reshape((s[0], len(tickers), number_of_features))
@@ -161,4 +200,4 @@ def load_data(exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), period: str 
 
 
 if __name__ == '__main__':
-    load_data(period="1w", interval="1h", num_workers=16)
+    load_data(period=("2022-04-12", None), interval="1h", num_workers=16)
