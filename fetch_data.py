@@ -7,7 +7,6 @@ import multiprocessing as mp
 import os
 import pickle
 import yfinance.shared as shared
-import xarray
 from typing import Union
 
 save_dir = "data/values/"
@@ -66,7 +65,7 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
                 next(ticker_reader, None)  # skip the headers
 
                 for row in ticker_reader:
-                    if row[0] not in ticker_name_list:  # we only take one listing a given ticker
+                    if row[0].strip() not in ticker_name_list:  # we only take one listing a given ticker
                         ticker_name_list.append(row[0].strip())
 
         elif exchange == "tsx":
@@ -77,8 +76,11 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
                 next(ticker_reader, None)  # skip the headers
 
                 for row in ticker_reader:
-                    if row[0] not in ticker_name_list:  # we only take one listing a given ticker
+                    if row[3].strip() not in ticker_name_list:  # we only take one listing a given ticker
+                        ticker_name_list.append(row[3].strip())
+                    if row[3].strip() + ".TO" not in ticker_name_list:
                         ticker_name_list.append(row[3].strip() + ".TO")
+
     # we first get them to see which tickers don't work anymore
 
     manager = mp.Manager()
@@ -198,7 +200,6 @@ def load_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "
         # only been like 5 tickers out of 7500 so we just drop them
 
         try:
-
             assert data[ticker].shape == (s[0], number_of_features)
 
         except AssertionError:
@@ -219,4 +220,5 @@ def load_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "
 
 
 if __name__ == '__main__':
-    load_data(period=("2022-04-12", None), interval="1h", num_workers=16)
+    # load_data(period=("2022-04-18", None), interval="1h", num_workers=16)
+    load_data(period="1w", interval="1h", num_workers=16)
