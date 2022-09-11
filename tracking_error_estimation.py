@@ -3,6 +3,7 @@ import copy
 from currency_converter import CurrencyConverter, SINGLE_DAY_ECB_URL
 import math
 
+
 current_cash = 0
 
 
@@ -19,7 +20,7 @@ portfolio = {'VOO': (2, 9.0, 'USD'),
 def get_current_exchange_rate(origin: str):
     c = CurrencyConverter(SINGLE_DAY_ECB_URL)
     rate = c.convert(1, origin, 'CAD')
-    print(f"Current USD to CAD rate: {rate}")
+    print(f"Current {origin} to CAD rate: {rate}")
     return rate
 
 
@@ -92,15 +93,15 @@ def main():
         portfolio_value += portfolio[ticker][0] * prices[ticker]
         tickers.append(ticker)
 
-    best_porfolio, new_value = greedy_solve(initial_portfolio, portfolio_value, prices, tickers)
+    best_portfolio, new_value = greedy_solve(initial_portfolio, portfolio_value, prices, tickers)
 
-    print(f"\nBest Standard Deviation: {get_portfolio_error(best_porfolio, new_value, prices):.3f}")
+    print(f"\nBest Standard Deviation: {get_portfolio_error(best_portfolio, new_value, prices):.3f}")
 
     print(f"New Portfolio Value: {new_value:.3f}")
     print(f"Cash Left: {portfolio_value + current_cash - new_value:.3f}\n")
 
     print(f"Minimum Tracking Error Combination")
-    for ticker, shares in best_porfolio.items():
+    for ticker, shares in best_portfolio.items():
         print(f"{ticker}: {portfolio[ticker][0]} + {shares - portfolio[ticker][0]} -> {shares}")
 
 
