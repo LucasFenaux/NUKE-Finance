@@ -1,4 +1,5 @@
 import csv
+import queue
 
 import numpy as np
 import pandas as pd
@@ -44,7 +45,7 @@ def download_data_worker(tickers: list, period: Union[str, tuple], interval: str
         q.put((data, available_tickers))
         return
 
-    except:
+    except ConnectionError:
         print(f"Something went wrong when fetching all the data")
         # so the process doesn't get stuck in an infinite loop
         q.put(None)
@@ -107,7 +108,7 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
         if tickers is None:
             _, tickers = q.get()
         else:
-            d, t = q.get()
+            _, t = q.get()
             tickers += t
 
     pool.close()
@@ -134,19 +135,25 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
     for job in jobs:
         job.get()
 
+    pool.close()
+    pool.join()
+
     data = None
 
     for i in range(num_workers):
-
-        d, _ = q.get()
+        try:
+            d, _ = q.get(timeout=10)
+        except queue.Empty:
+            print("Getting from queue timed-out")
+            return None
+        d.index = pd.to_datetime(d.index)
+        d.index.tz_convert("UTC")
+        d = d.asfreq(interval)
 
         if data is None:
             data = d
         else:
             data = pd.concat([data, d], axis=1)
-
-    pool.close()
-    pool.join()
 
     # we save to pickle instead of csv to save the indexing structure properly
     # data.to_pickle(save_dir + f"{exchanges}_{period}_{interval}.pkl")
@@ -191,8 +198,8 @@ def load_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "
         data = download_data(period=period, exchanges=exchanges, interval=interval, num_workers=num_workers)
 
     number_of_features = 6
-    s = data.shape
     tickers = data.keys().get_level_values(0).unique().values
+    s = data.shape
 
     for l, ticker in enumerate(tickers):
 
@@ -211,9 +218,17 @@ def load_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "
     tickers = data.keys().get_level_values(0).unique().values
     print(f"There are {len(tickers)} tickers in the available training data")
 
+    # only keep the times within market open
+    # we're working in UTC, we keep into account the tsx stocks closing time
+    data = data.between_time(start_time="13:29", end_time="21:01")
+    print("###########")
+    print(len(data.index))
+    print(data['RY.TO'])
+    s = data.shape
+
     # reshape it into a numpy array of the form (ticker, timestamp, column attribute)
     # where the column attributes are the features
-    data = data.fillna(-1.).values.reshape((s[0], len(tickers), number_of_features))
+    data = data.fillna(-1.0).values.reshape((s[0], len(tickers), number_of_features))
     data = data.transpose(1, 0, 2)
 
     return data, tickers
@@ -221,4 +236,4 @@ def load_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "
 
 if __name__ == '__main__':
     # load_data(period=("2022-04-18", None), interval="1h", num_workers=16)
-    load_data(period="1w", interval="1h", num_workers=8)
+    load_data(period=("2022-04-13", "2022-04-21"), interval="1h", num_workers=16)
