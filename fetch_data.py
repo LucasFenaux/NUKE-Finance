@@ -17,7 +17,7 @@ if not os.path.exists(save_dir):
 # when downloading a yfinance ticker using a start-end, one can make the end time a day later to capture the current day
 
 
-def download_data_worker(tickers: list, period, interval, q):
+def download_data_worker(tickers: list, period: Union[str, tuple], interval: str, q: mp.Queue):
 
     available_tickers = []
     multi_tickers = ""
