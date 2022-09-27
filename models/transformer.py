@@ -47,51 +47,92 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 
-class TransformerModel(nn.Module):
-    """Container module with an encoder, a recurrent or transformer module, and a decoder."""
+class NormalizationEmbeddingLayer(nn.Module):
+    def __init__(self):
+        super(NormalizationEmbeddingLayer, self).__init__()
 
-    def __init__(self, ntoken, ninp, nhead, nhid, nlayers, dropout=0.5):
-        super(TransformerModel, self).__init__()
-        try:
-            from torch.nn import TransformerEncoder, TransformerEncoderLayer
-        except:
-            raise ImportError('TransformerEncoder module does not exist in PyTorch 1.1 or lower.')
-        self.model_type = 'Transformer'
-        self.src_mask = None
-        self.pos_encoder = PositionalEncoding(ninp, dropout)
-        encoder_layers = TransformerEncoderLayer(ninp, nhead, nhid, dropout)
-        self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
-        self.ninp = ninp
-        self.decoder = nn.Linear(ninp, ntoken)
+    def forward(self, x):
+        normalized_x = []
+        for i in range(x.size()[0]):
+            min_val = x[i].min()
+            shifted_x = x[i] - min_val
+            max_val = shifted_x.max()
+            normalized_x.append((shifted_x/max_val).unsqueeze(0))
+        return torch.cat(normalized_x, dim=0)
 
-        self.init_weights()
 
-    def _generate_square_subsequent_mask(self, sz):
-        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+class StockTransformer(nn.Module):
+    def __init__(self, d_model: int = 4, nhead: int = 1, batch_first: bool = True, dropout_rate: float = 0.1,
+                 max_len: int = 5000):
+        super(StockTransformer, self).__init__()
+        self.transformer = nn.Transformer(d_model, nhead, batch_first)
+        self.positional_encoding = PositionalEncoding(d_model, dropout_rate, max_len)
+        self.embbedding = NormalizationEmbeddingLayer()
+
+    def get_tgt_mask(self, size: int) -> torch.tensor:
+        # Generates a squeare matrix where the each row allows one word more to be seen
+        mask = torch.tril(torch.ones(size, size) == 1) # Lower triangular matrix
+        mask = mask.float()
+        mask = mask.masked_fill(mask == 0, float('-inf')) # Convert zeros to -inf
+        mask = mask.masked_fill(mask == 1, float(0.0))
+
         return mask
 
-    def init_weights(self):
-        initrange = 0.1
-        nn.init.zeros_(self.decoder.bias)
-        nn.init.uniform_(self.decoder.weight, -initrange, initrange)
+    def forward(self, src, tgt):
+        src = self.embbedding(src)
+        tgt = self.embbedding(tgt)
 
-    def forward(self, src, has_mask=True):
-        if has_mask:
-            device = src.device
-            if self.src_mask is None or self.src_mask.size(0) != len(src):
-                mask = self._generate_square_subsequent_mask(len(src)).to(device)
-                self.src_mask = mask
-        else:
-            self.src_mask = None
+        src = self.positional_encoding(src)
+        tgt = self.positional_encoding(tgt)
 
-        src = src * math.sqrt(self.ninp)
-        # print(src.size())
-        src = self.pos_encoder(src)
-        # print(src.size())
-        output = self.transformer_encoder(src, self.src_mask)
-        # print(output.size())
-        output = self.decoder(output)
-        # print(output.size())
-        # return F.log_softmax(output, dim=-1)
-        return F.sigmoid(output)
+        out = self.transformer(src, tgt)
+
+#
+# class TransformerModel(nn.Module):
+#     """Container module with an encoder, a recurrent or transformer module, and a decoder."""
+#
+#     def __init__(self, ntoken, ninp, nhead, nhid, nlayers, dropout=0.5):
+#         super(TransformerModel, self).__init__()
+#         try:
+#             from torch.nn import TransformerEncoder, TransformerEncoderLayer
+#         except:
+#             raise ImportError('TransformerEncoder module does not exist in PyTorch 1.1 or lower.')
+#         self.model_type = 'Transformer'
+#         self.src_mask = None
+#         self.pos_encoder = PositionalEncoding(ninp, dropout)
+#         encoder_layers = TransformerEncoderLayer(ninp, nhead, nhid, dropout)
+#         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
+#         self.ninp = ninp
+#         self.decoder = nn.Linear(ninp, ntoken)
+#
+#         self.init_weights()
+#
+#     def _generate_square_subsequent_mask(self, sz):
+#         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+#         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+#         return mask
+#
+#     def init_weights(self):
+#         initrange = 0.1
+#         nn.init.zeros_(self.decoder.bias)
+#         nn.init.uniform_(self.decoder.weight, -initrange, initrange)
+#
+#     def forward(self, src, has_mask=True):
+#         if has_mask:
+#             device = src.device
+#             if self.src_mask is None or self.src_mask.size(0) != len(src):
+#                 mask = self._generate_square_subsequent_mask(len(src)).to(device)
+#                 self.src_mask = mask
+#         else:
+#             self.src_mask = None
+#
+#         src = src * math.sqrt(self.ninp)
+#         # print(src.size())
+#         src = self.pos_encoder(src)
+#         # print(src.size())
+#         output = self.transformer_encoder(src, self.src_mask)
+#         # print(output.size())
+#         output = self.decoder(output)
+#         # print(output.size())
+#         # return F.log_softmax(output, dim=-1)
+#         return F.sigmoid(output)

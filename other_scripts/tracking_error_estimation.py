@@ -8,13 +8,13 @@ current_cash = 0
 
 
 portfolio = {'VOO': (2, 9.0, 'USD'),
-             'VXUS': (19, 13.0, 'USD'),
+             'VXUS': (26, 13.0, 'USD'),
              'AVUV': (15, 11.0, 'USD'),
              'VUN.TO': (28, 15.0, 'CAD'),
-             'AVDV': (18, 12.0, 'USD'),
-             'VCN.TO': (80, 30.0, 'CAD'),
+             'AVDV': (23, 12.0, 'USD'),
+             'VCN.TO': (100, 30.0, 'CAD'),
              'VLUE': (4, 0.0, 'USD'),
-             'BND': (0, 10.0, 'USD')}  # layout is portfolio[ticker] = (# shares owned, ideal % weight in portfolio)
+             'BND': (14, 10.0, 'USD')}  # layout is portfolio[ticker] = (# shares owned, ideal % weight in portfolio)
 
 
 def get_current_exchange_rate(origin: str):

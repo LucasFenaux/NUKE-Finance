@@ -83,7 +83,7 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
                         ticker_name_list.append(row[3].strip() + ".TO")
 
     # we first get them to see which tickers don't work anymore
-
+    print(period)
     manager = mp.Manager()
     q = manager.Queue()
     pool = mp.Pool(num_workers)
@@ -146,9 +146,21 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
         except queue.Empty:
             print("Getting from queue timed-out")
             return None
-        d.index = pd.to_datetime(d.index)
-        d.index.tz_convert("UTC")
+        # d = pd.to_datetime(d, utc=True)
+        # d.index = pd.to_datetime(d.index, infer_datetime_format=True, utc=True)
+        # d.index.tz_convert("UTC")
+        try:
+            d.index = d.index.tz_localize('UTC')
+            d.index = d.index.tz_convert('UTC')
+        except:
+            d.index = d.index.tz_convert('UTC')
+
+        # d.index = d.index.tz_convert('UTC')
+        print(d.index)
+        print(np.count_nonzero(np.isnan(d)))
         d = d.asfreq(interval)
+        print(d.index)
+        print(np.count_nonzero(np.isnan(d)))
 
         if data is None:
             data = d
@@ -164,7 +176,7 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
 
 
 def load_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), interval: str = "1h",
-              num_workers: int = 16):
+              num_workers: int = 16, overwrite: bool = True):
     """ Loads saved stock market data, if it isn't saved, it downloads it
         Period can either be a string (representing the last amount of hours/days/weeks/months/years etc...
         or it can be a tuple of the form (starting_date, end_date) where if end_date is None then it defaults to
@@ -177,7 +189,7 @@ def load_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "
             if len(period) == 1:
                 period = (period[0], None)
 
-            if period[1] is None:
+            if period[1] is None and overwrite:
                 # we only have a starting date and the current date is now so we re-download the data
                 data = download_data(period=period, exchanges=exchanges, interval=interval, num_workers=num_workers)
 
@@ -200,7 +212,7 @@ def load_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "
     number_of_features = 6
     tickers = data.keys().get_level_values(0).unique().values
     s = data.shape
-
+    # for now we drop the volume and adjusted close price
     for l, ticker in enumerate(tickers):
 
         # sometimes some rows have duplicate indices, I do not know how to fix it without it taking forever and it's
@@ -220,20 +232,21 @@ def load_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "
 
     # only keep the times within market open
     # we're working in UTC, we keep into account the tsx stocks closing time
-    data = data.between_time(start_time="13:29", end_time="21:01")
-    print("###########")
-    print(len(data.index))
-    print(data['RY.TO'])
+    if interval != "1d" and interval != "1wk":
+        data = data.between_time(start_time="13:29", end_time="21:01")
+
     s = data.shape
 
     # reshape it into a numpy array of the form (ticker, timestamp, column attribute)
     # where the column attributes are the features
     data = data.fillna(-1.0).values.reshape((s[0], len(tickers), number_of_features))
     data = data.transpose(1, 0, 2)
-
+    # we drop the last two features (Adj Close and Volume)
+    data = data[:, :, :-2]
     return data, tickers
 
 
-if __name__ == '__main__':
-    # load_data(period=("2022-04-18", None), interval="1h", num_workers=16)
-    load_data(period=("2022-04-13", "2022-04-21"), interval="1h", num_workers=16)
+# if __name__ == '__main__':
+#     # load_data(period=("2022-04-18", None), interval="1h", num_workers=16)
+#     data = load_data(period=("2022-04-13", "2022-04-21"), interval="1h", num_workers=16)
+#     print(data[0].shape, data[1])
