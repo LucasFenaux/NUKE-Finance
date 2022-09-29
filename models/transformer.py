@@ -20,7 +20,7 @@ class PositionalEncoding(nn.Module):
         pos_encoder = PositionalEncoding(d_model)
     """
 
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
+    def __init__(self, d_model, dropout=0.1, max_len=5000, batch_first: bool = False):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
 
@@ -29,8 +29,12 @@ class PositionalEncoding(nn.Module):
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
+        if batch_first:
+            pe = pe.unsqueeze(0)
+        else:
+            pe = pe.unsqueeze(0).transpose(0, 1)
         self.register_buffer('pe', pe)
+        self.batch_first = batch_first
 
     def forward(self, x):
         r"""Inputs of forward function
@@ -42,51 +46,58 @@ class PositionalEncoding(nn.Module):
         Examples:
             output = pos_encoder(x)
         """
-
-        x = x + self.pe[:x.size(0), :]
+        if self.batch_first:
+            x = x + self.pe[:, x.size(1), :]
+        else:
+            x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
 
 
-class NormalizationEmbeddingLayer(nn.Module):
-    def __init__(self):
-        super(NormalizationEmbeddingLayer, self).__init__()
+class EmbeddingLayer(nn.Module):
+    def __init__(self, input_dim: int = 5, d_model: int = 64):
+        super(EmbeddingLayer, self).__init__()
+        self.linear = nn.Linear(in_features=input_dim, out_features=d_model)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
-        normalized_x = []
-        for i in range(x.size()[0]):
-            min_val = x[i].min()
-            shifted_x = x[i] - min_val
-            max_val = shifted_x.max()
-            normalized_x.append((shifted_x/max_val).unsqueeze(0))
-        return torch.cat(normalized_x, dim=0)
+        return self.relu(self.linear(x))
 
 
 class StockTransformer(nn.Module):
-    def __init__(self, d_model: int = 4, nhead: int = 1, batch_first: bool = True, dropout_rate: float = 0.1,
-                 max_len: int = 5000):
+    def __init__(self, input_dim: int = 5, d_model: int = 64, nhead: int = 4, batch_first: bool = True,
+                 dropout_rate: float = 0.1, max_len: int = 5000):
         super(StockTransformer, self).__init__()
-        self.transformer = nn.Transformer(d_model, nhead, batch_first)
-        self.positional_encoding = PositionalEncoding(d_model, dropout_rate, max_len)
-        self.embbedding = NormalizationEmbeddingLayer()
+        self.nhead = nhead
+        # self.transformer = nn.Transformer(d_model, nhead, batch_first=batch_first)
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, batch_first=batch_first)
+        self.transformer = nn.TransformerEncoder(encoder_layer=self.encoder_layer, num_layers=6)
+        self.positional_encoding = PositionalEncoding(d_model, dropout_rate, max_len, batch_first=batch_first)
+        self.embbedding = EmbeddingLayer(input_dim=input_dim, d_model=d_model)
+        self.downsample = nn.Linear(in_features=d_model, out_features=input_dim)
+        self.init_weights()
+    #
+    # def get_tgt_mask(self, batch_size: int, size: int) -> torch.tensor:
+    #     # Generates a squeare matrix where the each row allows one word more to be seen
+    #     mask = torch.tril(torch.ones(batch_size*self.nhead, size, size) == 1) # Lower triangular matrix
+    #     mask = mask.float()
+    #     mask = mask.masked_fill(mask == 0, float('-inf')) # Convert zeros to -inf
+    #     mask = mask.masked_fill(mask == 1, float(0.0))
+    #
+    #     return mask
 
-    def get_tgt_mask(self, size: int) -> torch.tensor:
-        # Generates a squeare matrix where the each row allows one word more to be seen
-        mask = torch.tril(torch.ones(size, size) == 1) # Lower triangular matrix
-        mask = mask.float()
-        mask = mask.masked_fill(mask == 0, float('-inf')) # Convert zeros to -inf
-        mask = mask.masked_fill(mask == 1, float(0.0))
-
-        return mask
-
-    def forward(self, src, tgt):
+    # def forward(self, src, tgt, tgt_mask=None):
+    def forward(self, src):
         src = self.embbedding(src)
-        tgt = self.embbedding(tgt)
-
         src = self.positional_encoding(src)
-        tgt = self.positional_encoding(tgt)
 
-        out = self.transformer(src, tgt)
+        out = self.transformer(src)
 
+        return 2*torch.tanh_(self.downsample(out))
+
+    def init_weights(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
 #
 # class TransformerModel(nn.Module):
 #     """Container module with an encoder, a recurrent or transformer module, and a decoder."""
