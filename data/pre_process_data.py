@@ -9,13 +9,24 @@ from utils.normalization import normalization
 import time
 from datetime import timedelta
 
-download_num_workers = 32
-train_num_workers = 16
+download_num_workers = 16
+train_num_workers = 8
+
+keys = {
+    "week": ("1w", "1h"),
+    "month": ("1mo", "1d"),
+    "year": ("1y", "1wk")
+}
 
 time_steps_ref = {
-    ("1y", "1wk"): (52, DT.timedelta(weeks=52)),
-    ("1mo", "1d"): (28, DT.timedelta(weeks=4)),
-    ("1w", "1h"): (40, DT.timedelta(days=7))
+    ("1y", "1wk"): (1000, DT.timedelta(weeks=52)),
+    ("1mo", "1d"): (1000, DT.timedelta(weeks=4)),
+    ("1w", "1h"): (1000, DT.timedelta(days=7))
+}
+
+max_increments = {
+    "week": 100,  # can't get 1h data further back than 730 days with yfinance
+    "month": 10000000
 }
 
 current_day = datetime.today()
@@ -38,37 +49,55 @@ def sliding_window_view_wrapper(arr: np.array, window_shape: int, axis: int = 0)
     return sliding_window_view(arr, window_shape=window_shape, axis=axis).transpose((0, 2, 1))
 
 
-def get_unindexed_week_data(num_weeks: int = 1, exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"),
-                            batch_size: int = 128, overwrite: bool = True):
+def get_un_indexed_data(num_increments: int = 1, sequence_length: int = 100, data_type: str = "week",
+                         exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), batch_size: int = 128,
+                         overwrite: bool = True, input_dim: int = 5):
     start_time = time.monotonic()
-    steps, delta = time_steps_ref[("1w", "1h")]
-    start_day = (current_day - num_weeks * delta).strftime("%Y-%m-%d")
+    key = keys.get(data_type, None)
+
+    if key is None:
+        print(f"{data_type} data type is not supported; please use a key in {keys.keys()}")
+        raise NotImplementedError
+
+    max_seq_legnth, delta = time_steps_ref[key]
+
+    assert sequence_length <= max_seq_legnth
+    assert num_increments <= max_increments[data_type]
+
+    start_day = (current_day - num_increments * delta).strftime("%Y-%m-%d")
 
     data, tickers = process_and_clean_horizon(period_start=start_day, period_end=None, exchanges=exchanges,
-                                              interval="1h", overwrite=overwrite)
-    dataset = []
+                                              interval=key[1], overwrite=overwrite, input_dim=input_dim)
+    print(data[0].columns.values)
+    train_dataset = []
+    test_dataset = []
     # we first need to take the data array and generate the windows one by one
     for ticker_data in data:
-        ticker_windows = sliding_window_view_wrapper(ticker_data.to_numpy(), window_shape=steps, axis=0)
-        if ticker_windows is not None:
-            dataset.append(ticker_windows)
-    dataset = np.concatenate(dataset, axis=0)
+        num_samples = ticker_data.shape[0]
+        index = int(num_samples * train_test_ratio)
+        train_ticker_windows = sliding_window_view_wrapper(ticker_data[:index].to_numpy(), window_shape=sequence_length,
+                                                           axis=0)
+        test_ticker_windows = sliding_window_view_wrapper(ticker_data[index:].to_numpy(), window_shape=sequence_length,
+                                                          axis=0)
+        if train_ticker_windows is not None:
+            train_dataset.append(train_ticker_windows)
+        if test_ticker_windows is not None:
+            test_dataset.append(test_ticker_windows)
 
-    assert np.count_nonzero(np.isnan(dataset)) == 0
-    num_samples = dataset.shape[0]
-    index = int(num_samples * train_test_ratio)
+    train_dataset = np.concatenate(train_dataset, axis=0)
+    test_dataset = np.concatenate(test_dataset, axis=0)
 
-    train_data = dataset[:index]
+    print(train_dataset.shape)
+    print(test_dataset.shape)
 
-    print(train_data.shape)
+    assert np.count_nonzero(np.isnan(train_dataset)) == 0 and np.count_nonzero(np.isnan(test_dataset)) == 0
 
-    test_data = dataset[index:]
-    print(test_data.shape)
-
-    train_dataset = TensorDataset(normalization(torch.Tensor(train_data), use_multiprocessing=True, num_workers=16))
+    train_dataset = TensorDataset(normalization(torch.Tensor(train_dataset), use_multiprocessing=True,
+                                                num_workers=download_num_workers))
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=train_num_workers)
 
-    test_dataset = TensorDataset(normalization(torch.Tensor(test_data), use_multiprocessing=True, num_workers=16))
+    test_dataset = TensorDataset(normalization(torch.Tensor(test_dataset), use_multiprocessing=True,
+                                               num_workers=download_num_workers))
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=train_num_workers)
     end_time = time.monotonic()
     print(f"Preprocessing took: {timedelta(seconds=end_time - start_time)}")
@@ -120,9 +149,9 @@ def get_week_data(num_weeks: int = 1, exchanges: tuple = ("nyse", "nasdaq", "ame
 
 
 def process_and_clean_horizon(period_start: str, period_end: str = None, exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"),
-                    interval: str = "1h", overwrite: bool = True):
+                    interval: str = "1h", overwrite: bool = True, input_dim: int = 5):
     data, tickers = load_clean_data(period=(period_start, period_end), exchanges=exchanges, interval=interval,
-                                    overwrite=overwrite, num_workers=download_num_workers)
+                                    overwrite=overwrite, num_workers=download_num_workers, input_dim=input_dim)
 
     return data, tickers
 

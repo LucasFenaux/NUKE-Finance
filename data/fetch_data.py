@@ -177,13 +177,18 @@ def download_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq
     return data
 
 
-def cleanup_ticker_data(data: pd.DataFrame):
+def cleanup_ticker_data(data: pd.DataFrame, input_dim: int = 5):
     # in this case, we do not care about the adjusted close
-    data = data.drop(columns='Adj Close')
+    if input_dim < 6:
+        data = data.drop(columns='Adj Close')
+    if input_dim < 5:
+        data = data.drop(columns='Volume')
+
     return data.dropna(axis=0, how='any')
 
 
-def download_and_clean_data_worker(tickers: list, period: Union[str, tuple], interval: str, q: mp.Queue):
+def download_and_clean_data_worker(tickers: list, period: Union[str, tuple], interval: str, input_dim: int,
+                                   q: mp.Queue):
     for ticker in tickers:
 
         try:
@@ -201,7 +206,7 @@ def download_and_clean_data_worker(tickers: list, period: Union[str, tuple], int
             errors = list(shared._ERRORS.keys())
             if ticker not in errors:
                 # we now cleanup the data
-                data = cleanup_ticker_data(data)
+                data = cleanup_ticker_data(data, input_dim=input_dim)
                 q.put((data, ticker))
             else:
                 print("Errors " + str(errors))
@@ -213,7 +218,7 @@ def download_and_clean_data_worker(tickers: list, period: Union[str, tuple], int
 
 
 def download_and_clean_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"),
-                            interval: str = "1h", num_workers: int = 16):
+                            interval: str = "1h", num_workers: int = 16, input_dim: int = 5):
     """ Reads all the existing tickers on a stock exchange from a pre-downloaded list stored in data/tickers"""
     ticker_name_list = []
     for exchange in exchanges:
@@ -255,11 +260,12 @@ def download_and_clean_data(period: Union[str, tuple], exchanges: tuple = ("nyse
     jobs = []
 
     for i in range(num_workers - 1):
-        job = pool.apply_async(download_and_clean_data_worker, (ticker_name_list[c:c+p], period, interval, q))
+        job = pool.apply_async(download_and_clean_data_worker, (ticker_name_list[c:c+p], period, interval, input_dim,
+                                                                q))
         jobs.append(job)
         c += p
 
-    job = pool.apply_async(download_and_clean_data_worker, (ticker_name_list[c:], period, interval, q))
+    job = pool.apply_async(download_and_clean_data_worker, (ticker_name_list[c:], period, interval, input_dim, q))
     jobs.append(job)
 
     for job in jobs:
@@ -284,14 +290,14 @@ def download_and_clean_data(period: Union[str, tuple], exchanges: tuple = ("nyse
     print(len(data))
     # we save to pickle instead of csv to save the indexing structure properly
     # data.to_pickle(save_dir + f"{exchanges}_{period}_{interval}.pkl")
-    with open(save_dir + f"{exchanges}_{period}_{interval}.pkl", "wb") as f:
+    with open(save_dir + f"{exchanges}_{period}_{interval}_{input_dim}.pkl", "wb") as f:
         pickle.dump((data, tickers), f)
 
     return data, tickers
 
 
 def load_clean_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), interval: str = "1h",
-              num_workers: int = 16, overwrite: bool = True):
+              num_workers: int = 16, overwrite: bool = True, input_dim: int = 5):
     """ Loads saved stock market data, if it isn't saved, it downloads it
          Period can either be a string (representing the last amount of hours/days/weeks/months/years etc...
          or it can be a tuple of the form (starting_date, end_date) where if end_date is None then it defaults to
@@ -309,16 +315,16 @@ def load_clean_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasd
                 print(f"overwrite is set to True with the second period None, hence we re-download the data")
                 print(f"It will now be downloaded using {num_workers} workers")
                 data, tickers = download_and_clean_data(period=period, exchanges=exchanges, interval=interval,
-                                                        num_workers=num_workers)
+                                                        num_workers=num_workers, input_dim=input_dim)
 
             else:
 
-                with open(save_dir + f"{exchanges}_{period}_{interval}.pkl", "rb") as f:
+                with open(save_dir + f"{exchanges}_{period}_{interval}_{input_dim}.pkl", "rb") as f:
                     data, tickers = pickle.load(f)
 
         else:
 
-            with open(save_dir + f"{exchanges}_{period}_{interval}.pkl", "rb") as f:
+            with open(save_dir + f"{exchanges}_{period}_{interval}_{input_dim}.pkl", "rb") as f:
                 data, tickers = pickle.load(f)
 
     except FileNotFoundError:
@@ -326,7 +332,7 @@ def load_clean_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasd
         print(f"Data for exchanges {exchanges} with period {period} and interval {interval} was not found")
         print(f"It will now be downloaded using {num_workers} workers")
         data, tickers = download_and_clean_data(period=period, exchanges=exchanges, interval=interval,
-                                                num_workers=num_workers)
+                                                num_workers=num_workers, input_dim=input_dim)
 
     return data, tickers
 

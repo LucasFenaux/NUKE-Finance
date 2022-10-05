@@ -18,7 +18,7 @@ class VanillaTrainer(Trainer):
     def train(self, epochs: int, data_loader: data.DataLoader, optimizer=None, scheduler=None, **kwargs):
 
         if optimizer is None:
-            optimizer = Adam(lr=0.01, params=self.model.parameters())
+            optimizer = Adam(lr=0.001, params=self.model.parameters())
 
         self.model.train()
         for e in range(epochs):
@@ -28,6 +28,7 @@ class VanillaTrainer(Trainer):
             with tqdm(data_loader, desc=f"Epoch 1/{epochs}") as pbar:
                 for x, in pbar:
                     x = x.to(self.model.device)
+                    assert torch.count_nonzero(torch.isnan(x)).item() == 0
                     # output, _ = self.model(x[:, :-1])
                     # sequence_length = x.size(1) - 1
                     # tgt_mask = self.model.get_tgt_mask(x.size(0), sequence_length).to(self.model.device)
@@ -54,6 +55,8 @@ class VanillaTrainer(Trainer):
         test_loss = SmoothedValue()
         test_penalty = SmoothedValue()
         test_acc = SmoothedValue()
+        feature_penalties = None
+        feature_accuracies = None
         for x, in data_loader:
             x = x.to(self.model.device)
             # sequence_length = x.size(1) - 1
@@ -64,8 +67,19 @@ class VanillaTrainer(Trainer):
 
             loss = self.model.loss(output, x)
 
-            test_loss.update(self.model.loss.loss_value.detach().cpu().numpy(), n=x.size()[0])
-            test_penalty.update(self.model.loss.penalty_value.detach().cpu().numpy(), n=x.size()[0])
+            num_features = self.model.loss.feature_penalties.size(0)
+            if feature_penalties is None:
+                feature_penalties = []
+                feature_accuracies = []
+                for features in range(num_features):
+                    feature_penalties.append(SmoothedValue())
+                    feature_accuracies.append(SmoothedValue())
+            for i in range(num_features):
+                feature_penalties[i].update(self.model.loss.feature_penalties[i].item(), n=x.size()[0])
+                feature_accuracies[i].update(directional_accuracy(output[:, :, i], x[:, :, i]), n=x.size()[0])
+
+            test_loss.update(self.model.loss.loss_value.item(), n=x.size()[0])
+            test_penalty.update(self.model.loss.penalty_value.item(), n=x.size()[0])
             test_acc.update(directional_accuracy(output, x), n=x.size()[0])
 
         logger.info(f"Loss: {test_loss}")
@@ -73,4 +87,6 @@ class VanillaTrainer(Trainer):
         logger.info(f"Guiding Loss: {test_penalty}")
         print(f"Guiding Loss: {test_penalty}")
         print(f"Test Accuracy: {test_acc}")
+        print(f"Feature Penalties: {feature_penalties}")
+        print(f"Feature Accuracies: {feature_accuracies}")
         return test_loss

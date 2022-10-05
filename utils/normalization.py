@@ -33,6 +33,7 @@ def multiprocess_normalization(x, num_workers: int = 16):
     for i in range(num_workers):
         try:
             d = q.get(timeout=10)
+
             data.append(d)
         except queue.Empty:
             print("Getting from queue timed-out")
@@ -55,8 +56,15 @@ def normalization(x, use_multiprocessing: bool = False, num_workers: int = 16):
             for j in range(x.size()[2]):
                 # we ignore the future value when normalizing to avoid leaking future information to the model
                 min_val = x[i, :-1, j].min()
+                # min_val = x[i, :, j].min()
+
                 shifted_x = x[i, :, j] - min_val + 1e-6
                 max_val = shifted_x[:-1].max()
-                row.append((shifted_x / max_val).unsqueeze(1))
+                # max_val = shifted_x.max()
+                # we clamp to prevent a too big a blow up in the values while keeping the idea that the last value is
+                # bigger
+                shifted_x = shifted_x/max_val
+                shifted_x = torch.clamp(shifted_x, min=-1.0, max=2.0)
+                row.append(shifted_x.unsqueeze(1))
             normalized_x.append(torch.cat(row, dim=1).unsqueeze(0))
         return torch.cat(normalized_x, dim=0)

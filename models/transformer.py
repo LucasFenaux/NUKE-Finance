@@ -73,6 +73,8 @@ class StockTransformer(nn.Module):
         self.transformer = nn.TransformerEncoder(encoder_layer=self.encoder_layer, num_layers=6)
         self.positional_encoding = PositionalEncoding(d_model, dropout_rate, max_len, batch_first=batch_first)
         self.embbedding = EmbeddingLayer(input_dim=input_dim, d_model=d_model)
+        # self.downsample1 = nn.Linear(in_features=d_model, out_features=int(math.sqrt(input_dim)))
+        # self.downsample2 = nn.Linear(in_features=int(math.sqrt(input_dim)), out_features=input_dim)
         self.downsample = nn.Linear(in_features=d_model, out_features=input_dim)
         self.init_weights()
     #
@@ -91,13 +93,19 @@ class StockTransformer(nn.Module):
         src = self.positional_encoding(src)
 
         out = self.transformer(src)
-
-        return 2*torch.tanh_(self.downsample(out))
+        # out = self.downsample2(self.downsample1(out))
+        out = self.downsample(out)
+        return out
 
     def init_weights(self):
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
+
+    @staticmethod
+    def get_name():
+        return "StockTransformer"
+
 #
 # class TransformerModel(nn.Module):
 #     """Container module with an encoder, a recurrent or transformer module, and a decoder."""
