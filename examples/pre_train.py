@@ -23,10 +23,9 @@ def parse_args():
     parser.add_argument("-b", "--batch_size", type=int, default=2048)
     parser.add_argument("--save", action="store_true")
     parser.add_argument("--input_dim", type=int, default=5)
+    parser.add_argument("--use-cache", action="store_true", dest="use_cache")
 
     return parser.parse_args()
-
-# TODO: implement the other time horizons
 
 
 def main():
@@ -39,10 +38,11 @@ def main():
     sequence_length = args.sequence_length
     data_type = args.data_type
     input_dim = args.input_dim
+    use_cache = args.use_cache
 
     train_loader, test_loader = get_un_indexed_data(num_increments, sequence_length=sequence_length,
                                                     data_type=data_type, batch_size=batch_size, overwrite=False,
-                                                    input_dim=input_dim)
+                                                    input_dim=input_dim, use_cache=use_cache)
 
     # model = LSTM(num_inputs=6, num_outputs=6).to(device)
     # model = Transformer(d_model=5, nhead=1, batch_first=True).to(device)

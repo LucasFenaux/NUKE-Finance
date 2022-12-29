@@ -9,6 +9,7 @@ class LSTMLoss(nn.Module):
         self.beta = beta
         self.loss = nn.MSELoss()
         self.relu = nn.ReLU()
+        self.tanh = nn.Tanh()
         self.loss_value = 0.
         self.penalty_value = 0.
         self.feature_penalties = torch.tensor([])
@@ -22,6 +23,7 @@ class LSTMLoss(nn.Module):
 
         x_diff = x[:, -2:-1] - x[:, -1:]
         output_diff = x[:, -2:-1] - output[:, -1:]
-        self.feature_penalties = torch.mean(self.relu(-x_diff * output_diff), dim=0).squeeze() * self.beta
+        # self.feature_penalties = torch.mean(self.relu(-x_diff * output_diff), dim=0).squeeze() * self.beta
+        self.feature_penalties = torch.mean(self.tanh(self.relu(-x_diff * output_diff)), dim=0).squeeze() * self.beta
         self.penalty_value = torch.mean(self.feature_penalties)
         return self.loss_value + self.penalty_value

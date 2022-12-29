@@ -26,7 +26,8 @@ time_steps_ref = {
 
 max_increments = {
     "week": 100,  # can't get 1h data further back than 730 days with yfinance
-    "month": 10000000
+    "month": 10000000,
+    "year": 10000000
 }
 
 current_day = datetime.today()
@@ -50,8 +51,8 @@ def sliding_window_view_wrapper(arr: np.array, window_shape: int, axis: int = 0)
 
 
 def get_un_indexed_data(num_increments: int = 1, sequence_length: int = 100, data_type: str = "week",
-                         exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), batch_size: int = 128,
-                         overwrite: bool = True, input_dim: int = 5):
+                        exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), batch_size: int = 128,
+                        overwrite: bool = True, input_dim: int = 5, use_cache: bool = False):
     start_time = time.monotonic()
     key = keys.get(data_type, None)
 
@@ -67,7 +68,8 @@ def get_un_indexed_data(num_increments: int = 1, sequence_length: int = 100, dat
     start_day = (current_day - num_increments * delta).strftime("%Y-%m-%d")
 
     data, tickers = process_and_clean_horizon(period_start=start_day, period_end=None, exchanges=exchanges,
-                                              interval=key[1], overwrite=overwrite, input_dim=input_dim)
+                                              interval=key[1], overwrite=overwrite, input_dim=input_dim,
+                                              use_cache=use_cache)
     print(data[0].columns.values)
     train_dataset = []
     test_dataset = []
@@ -92,12 +94,17 @@ def get_un_indexed_data(num_increments: int = 1, sequence_length: int = 100, dat
 
     assert np.count_nonzero(np.isnan(train_dataset)) == 0 and np.count_nonzero(np.isnan(test_dataset)) == 0
 
-    train_dataset = TensorDataset(normalization(torch.Tensor(train_dataset), use_multiprocessing=True,
-                                                num_workers=download_num_workers))
+    train_tensor = torch.Tensor(train_dataset)
+    # we take the pre-normalized value
+    train_values = train_tensor[:, -2, :]
+    train_dataset = TensorDataset(normalization(train_tensor, use_multiprocessing=True,
+                                                num_workers=download_num_workers), train_values)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=train_num_workers)
 
-    test_dataset = TensorDataset(normalization(torch.Tensor(test_dataset), use_multiprocessing=True,
-                                               num_workers=download_num_workers))
+    test_tensor = torch.Tensor(test_dataset)
+    test_values = test_tensor[:, -2, :]
+    test_dataset = TensorDataset(normalization(test_tensor, use_multiprocessing=True,
+                                               num_workers=download_num_workers), test_values)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=train_num_workers)
     end_time = time.monotonic()
     print(f"Preprocessing took: {timedelta(seconds=end_time - start_time)}")
@@ -149,9 +156,10 @@ def get_week_data(num_weeks: int = 1, exchanges: tuple = ("nyse", "nasdaq", "ame
 
 
 def process_and_clean_horizon(period_start: str, period_end: str = None, exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"),
-                    interval: str = "1h", overwrite: bool = True, input_dim: int = 5):
+                    interval: str = "1h", overwrite: bool = True, input_dim: int = 5, use_cache: bool = False):
     data, tickers = load_clean_data(period=(period_start, period_end), exchanges=exchanges, interval=interval,
-                                    overwrite=overwrite, num_workers=download_num_workers, input_dim=input_dim)
+                                    overwrite=overwrite, num_workers=download_num_workers, input_dim=input_dim,
+                                    use_cache=use_cache)
 
     return data, tickers
 

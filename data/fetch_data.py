@@ -9,8 +9,8 @@ import os
 import pickle
 import yfinance.shared as shared
 from typing import Union
+from configs.trading_config import save_dir
 
-save_dir = "data/values/"
 if not os.path.exists(save_dir):
     os.mkdir(save_dir)
 
@@ -297,12 +297,17 @@ def download_and_clean_data(period: Union[str, tuple], exchanges: tuple = ("nyse
 
 
 def load_clean_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasdaq", "amex", "tsx"), interval: str = "1h",
-              num_workers: int = 16, overwrite: bool = True, input_dim: int = 5):
+                num_workers: int = 16, overwrite: bool = True, input_dim: int = 5, use_cache: bool = False):
     """ Loads saved stock market data, if it isn't saved, it downloads it
          Period can either be a string (representing the last amount of hours/days/weeks/months/years etc...
          or it can be a tuple of the form (starting_date, end_date) where if end_date is None then it defaults to
          (starting_date, now)
      """
+    if use_cache:
+        if os.path.exists(os.path.join(save_dir, f"{exchanges}_{interval}_{input_dim}_cache.pkl")):
+            with open(save_dir + f"{exchanges}_{interval}_{input_dim}_cache.pkl", "rb") as f:
+                data, tickers = pickle.load(f)
+                return data, tickers
     try:
         # data = pd.read_pickle(save_dir + f"{exchanges}_{period}_{interval}.pkl")
         if type(period) == tuple:
@@ -333,7 +338,9 @@ def load_clean_data(period: Union[str, tuple], exchanges: tuple = ("nyse", "nasd
         print(f"It will now be downloaded using {num_workers} workers")
         data, tickers = download_and_clean_data(period=period, exchanges=exchanges, interval=interval,
                                                 num_workers=num_workers, input_dim=input_dim)
-
+    # we refresh the cache
+    with open(save_dir + f"{exchanges}_{interval}_{input_dim}_cache.pkl", "wb") as f:
+        pickle.dump((data, tickers), f)
     return data, tickers
 
 

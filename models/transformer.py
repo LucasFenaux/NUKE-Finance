@@ -106,7 +106,126 @@ class StockTransformer(nn.Module):
     def get_name():
         return "StockTransformer"
 
-#
+
+class TradingTransformer(nn.Module):
+    def __init__(self, week_model: nn.Module = None, month_model: nn.Module = None, year_model: nn.Module = None,
+                 week_dim: int = 5, month_dim: int = 5, year_dim: int = 5, intermediate_dim: int = 20, x_dim: int = 0,
+                 sequence_length: int = 100, n_stocks: int = 1000,
+                 d_model: int = 64, nhead: int = 4, batch_first: bool = True, dropout_rate: float = 0.1,
+                 max_len: int = 5000):
+        super(TradingTransformer, self).__init__()
+        self.nhead = nhead
+        self.n_stocks = n_stocks
+        # we use a different encoding layer for each of the incoming predicitions from the other transformers
+        self.week_dim = week_dim
+        self.x_dim = x_dim
+        self.intermediate_dim = intermediate_dim
+        if self.week_dim > 0:
+            self.week_embedding = EmbeddingLayer(input_dim=week_dim, d_model=d_model)
+        self.week_model = week_model
+
+        self.month_dim = month_dim
+        if self.month_dim > 0:
+            self.month_embedding = EmbeddingLayer(input_dim=month_dim, d_model=d_model)
+        self.month_model = month_model
+
+        self.year_dim = year_dim
+        if self.year_dim > 0:
+            self.year_embedding = EmbeddingLayer(input_dim=year_dim, d_model=d_model)
+        self.year_model = year_model
+
+        self.positional_encoding = PositionalEncoding(d_model, dropout_rate, max_len, batch_first=batch_first)
+
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=3*d_model, nhead=nhead, batch_first=batch_first)
+        self.transformer = nn.TransformerEncoder(encoder_layer=self.encoder_layer, num_layers=6)
+        self.downsample = nn.Linear(in_features=3*d_model, out_features=intermediate_dim)
+
+        self.flatten = nn.Flatten(start_dim=1)
+        self.sequence_length = sequence_length
+
+        self.action_maker = nn.Sequential(nn.Linear(in_features=intermediate_dim*sequence_length + x_dim,
+                                                    out_features=1000)
+                                          , nn.ReLU(), nn.Linear(in_features=1000, out_features=n_stocks))
+
+    def init_weights(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, x, values, week_input=None, month_input=None, year_input=None):
+        # x is the additional information we want to provide to the trading model on top of the other inputs
+        # values is the absolute values for the equivalent relative input values at the last given timestep
+        # as well as the amount of stocks currently in the portfolio. One can think of it as the current state
+        src = []
+        week_values, month_values, year_values = values
+        if self.week_dim > 0 and week_input is not None:
+            week_input = self.week_embedding(week_input)
+            # we put positional encoding before
+            week_input = self.positional_encoding(week_input)
+            week_out = self.week_model(week_input)
+            # we take the actual prediction and "teacher force" the actual values that may not have been properly
+            # reconstructed
+            week_out = torch.cat([week_input[:, :-1, :], week_out[:, -1:, :]], dim=1)
+            # and after, as the model is taught to remove it to reproduce the original sequence
+            week_out = self.positional_encoding(week_out)
+            src.append(torch.cat([week_values, week_out], dim=1))
+
+        elif self.week_dim > 0 and week_input is None:
+            # we make a dummy input
+            src.append(torch.zeros((x.size(0), self.sequence_length + 1, self.week_dim), device=self.device))
+
+        if self.month_dim > 0 and month_input is not None:
+            month_input = self.month_embedding(month_input)
+            # we put positional encoding before
+            month_input = self.positional_encoding(month_input)
+            month_out = self.month_model(month_input)
+            # we take the actual prediction and "teacher force" the actual values that may not have been properly
+            # reconstructed
+            month_out = torch.cat([month_input[:, :-1, :], month_out[:, -1:, :]], dim=1)
+            # and after, as the model is taught to remove it to reproduce the original sequence
+            month_out = self.positional_encoding(month_out)
+            src.append(torch.cat([month_values, month_out], dim=1))
+        elif self.month_dim > 0 and month_input is None:
+            # we make a dummy input
+            src.append(torch.zeros((x.size(0), self.sequence_length + 1, self.month_dim), device=self.device))
+
+        if self.year_dim > 0 and year_input is not None:
+            year_input = self.year_embedding(year_input)
+            # we put positional encoding before
+            year_input = self.positional_encoding(year_input)
+            year_out = self.year_model(year_input)
+            # we take the actual prediction and "teacher force" the actual values that may not have been properly
+            # reconstructed
+            year_out = torch.cat([year_input[:, :-1, :], year_out[:, -1:, :]], dim=1)
+            # and after, as the model is taught to remove it to reproduce the original sequence
+            year_out = self.positional_encoding(year_out)
+            src.append(torch.cat([year_values, year_out], dim=1))
+        elif self.year_dim > 0 and year_input is None:
+            # we make a dummy input
+            src.append(torch.zeros((x.size(0), self.sequence_length + 1, self.year_dim), device=self.device))
+
+        # assuming batch_first, sequence second, features third
+        src = torch.cat(src, dim=2)
+
+        # we then downsample the dimensions
+        out = self.downsample(src)
+
+        # we then incorporate the additional information we have
+        if x is not None:
+            out = torch.cat([self.flatten(out), x], dim=1)
+        else:
+            # we don't have any additional information
+            out = self.flatten(out)
+
+        out = self.action_maker(out)
+
+        return out
+
+    @staticmethod
+    def get_name():
+        return "TradingTransformer"
+
+
 # class TransformerModel(nn.Module):
 #     """Container module with an encoder, a recurrent or transformer module, and a decoder."""
 #
