@@ -2,7 +2,7 @@ import torch
 
 
 game = 'trading'
-gamma = 0.999
+gamma = 0.99
 batch_size = 128
 fe_lr = 1e-5
 am_lr = 1e-5
@@ -10,7 +10,7 @@ initial_exploration = 128
 replay_capacity = 512
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 max_epsilon = 0.05
-epochs = 1000
+epochs = 10000
 update_target = 100
 train_frequency = int(batch_size / 8)  # we train as much as we would if we trained every epoch with batch size 8
 sequence_length = 100

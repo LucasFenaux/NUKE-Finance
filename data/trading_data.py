@@ -71,8 +71,8 @@ class TradingEnv:
         self.current_valuations = None
         self.episode_length = None
         self.final_episode_index = None
-        self.current_liquidity = starting_liquidity
-        self.current_worth = starting_liquidity
+        self.current_liquidity = None
+        self.current_worth = None
 
     @torch.no_grad()
     def update_month_and_year_indices(self):
@@ -93,8 +93,10 @@ class TradingEnv:
     @torch.no_grad()
     def reset(self):
         # we re-initialize the portfolio and the liquidity
-        self.current_liquidity = self.starting_liquidity
-        self.current_worth = self.starting_liquidity
+        # we reset to a random number between 10% and 110% of starting liquidity
+        starting_coef = random.random()
+        self.current_liquidity = self.starting_liquidity * (starting_coef + 0.1)
+        self.current_worth = self.starting_liquidity * (starting_coef + 0.1)
 
         self.stock_portfolio = torch.zeros(len(self.tickers)).to(self.device)
         self.model_portfolio = torch.zeros(len(self.tickers)).to(self.device)  # percentage version

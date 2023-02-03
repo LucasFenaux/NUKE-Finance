@@ -4,7 +4,7 @@ from currency_converter import CurrencyConverter, SINGLE_DAY_ECB_URL
 import math
 
 
-current_cash = 0
+current_cash = 2600
 
 
 portfolio = {'VOO': (2, 9.0, 'USD'),
@@ -12,7 +12,7 @@ portfolio = {'VOO': (2, 9.0, 'USD'),
              'AVUV': (15, 11.0, 'USD'),
              'VUN.TO': (28, 15.0, 'CAD'),
              'AVDV': (23, 12.0, 'USD'),
-             'VCN.TO': (100, 30.0, 'CAD'),
+             'VCN.TO': (101, 30.0, 'CAD'),
              'VLUE': (4, 0.0, 'USD'),
              'BND': (14, 10.0, 'USD')}  # layout is portfolio[ticker] = (# shares owned, ideal % weight in portfolio)
 

@@ -13,6 +13,9 @@ import time
 from datetime import timedelta
 from utils import utils
 
+# TODO- Fix normalization
+# TODO - Fix transformer taking -1 mask input but not being trained for it. Maybe make it fill the -1 values and take the average guess across the different sequences it spans
+
 
 def get_args_parser(add_help=True):
     import argparse
