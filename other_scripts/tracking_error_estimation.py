@@ -3,18 +3,11 @@ import copy
 from currency_converter import CurrencyConverter, SINGLE_DAY_ECB_URL
 import math
 
-
-current_cash = 2600
-
-
-portfolio = {'VOO': (2, 9.0, 'USD'),
-             'VXUS': (26, 13.0, 'USD'),
-             'AVUV': (15, 11.0, 'USD'),
-             'VUN.TO': (28, 15.0, 'CAD'),
-             'AVDV': (23, 12.0, 'USD'),
-             'VCN.TO': (101, 30.0, 'CAD'),
-             'VLUE': (4, 0.0, 'USD'),
-             'BND': (14, 10.0, 'USD')}  # layout is portfolio[ticker] = (# shares owned, ideal % weight in portfolio)
+try:
+    # implement your own cash balance and portfolio in local_config.py file. Use global_config.py as template
+    from other_scripts.local_config import current_cash, portfolio
+except ImportError:
+    from other_scripts.global_config import current_cash, portfolio
 
 
 def get_current_exchange_rate(origin: str):
